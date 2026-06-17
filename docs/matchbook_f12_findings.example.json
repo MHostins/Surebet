@@ -1,0 +1,20 @@
+﻿{
+  "login_url": "",
+  "login_method": "",
+  "login_status": "",
+  "content_type": "",
+  "uses_cookie": true,
+  "uses_bearer_token": false,
+  "uses_session_token_header": false,
+  "events_endpoint": "",
+  "markets_endpoint": "",
+  "odds_endpoint": "",
+  "events_request_url": "",
+  "events_method": "",
+  "events_status": "",
+  "events_content_type": "",
+  "events_uses_cookie": true,
+  "events_has_prices": false,
+  "events_sample_redacted": {},
+  "notes": ""
+}

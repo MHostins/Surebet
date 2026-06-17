@@ -5,6 +5,7 @@ $OutputDir = Join-Path $ProjectRoot "outputs"
 $LogPath = Join-Path $OutputDir "watch_multi_bookmakers_7200.log"
 $StdoutPath = Join-Path $OutputDir "watch_multi_bookmakers_stdout.log"
 $StderrPath = Join-Path $OutputDir "watch_multi_bookmakers_stderr.log"
+$HistoryPath = Join-Path $OutputDir "multi_bookmaker_watch_history.jsonl"
 $PidPath = Join-Path $OutputDir "watch_multi_bookmakers.pid"
 $TaskName = "SurebetWatchMultiBookmakers"
 
@@ -47,4 +48,9 @@ if (Test-Path -LiteralPath $StderrPath) {
 if (Test-Path -LiteralPath $StdoutPath) {
     "`n--- Last Python stdout log lines ---"
     Get-Content -LiteralPath $StdoutPath -Tail 30
+}
+
+if (Test-Path -LiteralPath $HistoryPath) {
+    "`n--- Last watch history entries ---"
+    Get-Content -LiteralPath $HistoryPath -Tail 5
 }

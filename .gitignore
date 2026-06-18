@@ -6,3 +6,6 @@ outputs/
 .pytest_cache/
 .coverage
 htmlcov/
+
+docs/surebet_research_artifacts/
+docs/surebet_research_artifacts_auth/

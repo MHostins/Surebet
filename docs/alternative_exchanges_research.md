@@ -62,7 +62,7 @@ Ambas utilizam a infraestrutura e liquidez de "white-label" da Betfair.
 * **Orbit Exchange**: Não fornece nenhuma API oficial pública ou privada para integração de robôs ou coleta de dados. Descartada.
 * **Bolsa de Aposta**: Operada no Brasil pela A2FBR S.A. (regularizada), mas não possui API pública para desenvolvedores externos, oferecendo apenas integração web via sua interface LayBack Web e robôs internos fechados.
 
-### 3.5. Casas de Apostas Tradicionais "Soft" (Betano, Sportingbet, Novibet, bet365, BetMGM, Stake, 1xBet)
+### 3.5. Casas de Apostas Tradicionais "Soft" (Sportingbet, Novibet, BetMGM, Stake, 1xBet; Betano e Bet365 fora do escopo)
 Todas possuem licença oficial ativa para operar no Brasil.
 * **Modelo**: Sportsbooks focados em usuários recreativos.
 * **Ausência de APIs**: Não oferecem APIs públicas para desenvolvedores de varejo.
@@ -100,7 +100,7 @@ A **Pinnacle Brasil** deve ser mantida como segunda fonte definitiva do projeto 
 ### Quais provedores devem ser descartados?
 * **Smarkets, Betdaq, BetConnect, BetInAsia**: Descartados por falta de conformidade regulatória no Brasil.
 * **Orbit Exchange, Bolsa de Aposta**: Descartados por ausência de APIs oficiais.
-* **Soft Books (Bet365, Betano, etc.)**: Descartados pelo alto risco de banimento de contas e falta de APIs.
+* **Soft Books**: Em geral descartados pelo alto risco de banimento de contas e falta de APIs. Betano e Bet365 tambem ficam explicitamente fora do escopo por restricao do usuario.
 
 ---
 

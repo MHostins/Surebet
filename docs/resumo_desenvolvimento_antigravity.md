@@ -23,7 +23,7 @@ Como a Pinnacle não opera como Exchange (não aceita apostas Lay), o modelo do 
 * **Solução**:
   * Removemos o endpoint inexistente.
   * Implementamos um algoritmo de descoberta em `clients/the_odds_api_client.py` que consulta os eventos esportivos ativos da API (`/v4/sports/{sport}/odds`) e mapeia as casas disponíveis examinando a lista dinâmica de `event["bookmakers"]`.
-  * Adicionamos o modo `py main.py --mode odds-api-bookmakers`, gerando o arquivo `outputs/the_odds_api_bookmakers.json` e listando de forma amigável no terminal quais das casas desejadas (`pinnacle`, `betano`, `sportingbet`, `novibet`, `bet365`) estavam disponíveis na região/plano do usuário.
+  * Adicionamos o modo `py main.py --mode odds-api-bookmakers`, gerando o arquivo `outputs/the_odds_api_bookmakers.json` e listando de forma amigável no terminal quais das casas desejadas estavam disponíveis na região/plano do usuário. Escopo estratégico atualizado: Betano e Bet365 ficam fora de abertura de conta, ranking, integração, coleta, comparação e priorização por restrição do usuário.
 
 ### Fase 2: Comparador Multi-Bookmaker e Proteção de Dados
 * **Implementação**: Desenvolvemos o serviço `services/multi_bookmaker_comparison_service.py`.

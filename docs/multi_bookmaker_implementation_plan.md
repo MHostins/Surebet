@@ -9,7 +9,7 @@ Este plano descreve as alterações necessárias para implementar o suporte mult
 ### 1. Novo Modo de Consulta de Casas (Odds API Bookmakers)
 Antes de construir a comparação avançada, criaremos um modo diagnóstico simples para verificar as chaves reais de bookmakers suportadas pela conta:
 * **Comando:** `py main.py --mode odds-api-bookmakers`
-* **Objetivo:** Consultar odds por esporte em `/v4/sports/{sport}/odds`, extrair as casas presentes em `event["bookmakers"]` e listar de forma amigável quais das casas desejadas (`pinnacle`, `betano`, `sportingbet`, `novibet`, `bet365`) estão disponíveis. O endpoint `/v4/bookmakers` foi evitado porque retornou `404` no plano v4 usado no projeto.
+* **Objetivo:** Consultar odds por esporte em `/v4/sports/{sport}/odds`, extrair as casas presentes em `event["bookmakers"]` e listar de forma amigável quais das casas permitidas (`pinnacle`, `sportingbet`, `novibet` e outras autorizadas no Brasil, exceto Betano e Bet365) estão disponíveis. O endpoint `/v4/bookmakers` foi evitado porque retornou `404` no plano v4 usado no projeto.
 * **Saída:** `outputs/the_odds_api_bookmakers.json`
 
 ---
@@ -61,7 +61,7 @@ A tabela `odds_history` no banco `outputs/odds_history.db` incluirá colunas adi
   * `the_odds_api_key`: string (carregada de `THE_ODDS_API_KEY`).
   * `the_odds_api_base_url`: string (`THE_ODDS_API_BASE_URL`, padrão `https://api.the-odds-api.com/v4`).
   * `the_odds_api_regions`: string (`THE_ODDS_API_REGIONS`, padrão `eu`).
-  * `the_odds_api_bookmakers`: lista/string (`THE_ODDS_API_BOOKMAKERS`, padrão `pinnacle,betano,sportingbet,novibet,bet365`).
+  * `the_odds_api_bookmakers`: lista/string (`THE_ODDS_API_BOOKMAKERS`, padrão `pinnacle,sportingbet,novibet`). Betano e Bet365 ficam fora do escopo por restrição do usuário.
   * `odds_history_db_path`: string (`ODDS_HISTORY_DB_PATH`, padrão `outputs/odds_history.db`).
 
 #### [MODIFY] [.env.example](file:///c:/Projetos/Surebet/.env.example)

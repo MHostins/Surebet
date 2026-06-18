@@ -6,6 +6,7 @@ $LogPath = Join-Path $OutputDir "watch_multi_bookmakers_7200.log"
 $StdoutPath = Join-Path $OutputDir "watch_multi_bookmakers_stdout.log"
 $StderrPath = Join-Path $OutputDir "watch_multi_bookmakers_stderr.log"
 $HistoryPath = Join-Path $OutputDir "multi_bookmaker_watch_history.jsonl"
+$UsageHistoryPath = Join-Path $OutputDir "the_odds_api_usage_history.jsonl"
 $PidPath = Join-Path $OutputDir "watch_multi_bookmakers.pid"
 $TaskName = "SurebetWatchMultiBookmakers"
 
@@ -33,6 +34,7 @@ $taskInfo = if ($task) { Get-ScheduledTaskInfo -TaskName $TaskName } else { $nul
     LastTaskResult = if ($taskInfo) { $taskInfo.LastTaskResult } else { $null }
     NextTaskRunTime = if ($taskInfo) { $taskInfo.NextRunTime } else { $null }
     LogPath = $LogPath
+    UsageHistoryPath = $UsageHistoryPath
 }
 
 if (Test-Path -LiteralPath $LogPath) {
@@ -53,4 +55,9 @@ if (Test-Path -LiteralPath $StdoutPath) {
 if (Test-Path -LiteralPath $HistoryPath) {
     "`n--- Last watch history entries ---"
     Get-Content -LiteralPath $HistoryPath -Tail 5
+}
+
+if (Test-Path -LiteralPath $UsageHistoryPath) {
+    "`n--- Last The Odds API usage entries ---"
+    Get-Content -LiteralPath $UsageHistoryPath -Tail 5
 }

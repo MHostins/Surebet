@@ -2,7 +2,24 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = "C:\Projetos\Surebet"
 $OutputDir = Join-Path $ProjectRoot "outputs"
+$LogPath = Join-Path $OutputDir "watch_multi_bookmakers_7200.log"
 $PidPath = Join-Path $OutputDir "watch_multi_bookmakers.pid"
+$TaskName = "SurebetWatchMultiBookmakers"
+
+New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+
+function Write-WatchLog {
+    param([string]$Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value "$timestamp | task-stop | $Message"
+}
+
+$task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if ($task -and $task.State -eq "Running") {
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Write-WatchLog "requested scheduled task stop; task=$TaskName"
+}
 
 $processes = @(Get-CimInstance Win32_Process |
     Where-Object {
@@ -38,4 +55,11 @@ if (Test-Path -LiteralPath $PidPath) {
     Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
 }
 
-"Stopped $($processIds.Count) watch-multi-bookmakers process(es)."
+Write-WatchLog "stopped remaining watch processes; count=$($processIds.Count)"
+
+[pscustomobject]@{
+    TaskName = $TaskName
+    TaskStopped = [bool]$task
+    StoppedProcessCount = $processIds.Count
+    PidFileRemoved = -not (Test-Path -LiteralPath $PidPath)
+}

@@ -57,6 +57,47 @@ Nesta primeira integracao, o motor aceita somente:
 
 Para cada selecao, o motor escolhe a melhor odd liquida entre Matchbook Brasil e Pinnacle dentro do relatorio de discrepancia. Depois monta uma `Opportunity` com duas legs e chama o `OpportunityCalculator`.
 
+## Cross-Bookmaker Optimization
+
+A otimizacao existe porque o relatorio de discrepancias pode conter odds equivalentes para o mesmo resultado em mais de uma casa. Antes da Fase 3.0.1, o motor podia acabar calculando oportunidades com as duas legs vindas da mesma casa, como Pinnacle x Pinnacle ou Matchbook Brasil x Matchbook Brasil. Isso ainda e matematicamente valido para auditoria, mas e menos util para procurar arbitragem operacional entre casas diferentes.
+
+O fluxo atual faz o seguinte:
+
+1. agrupa as linhas por esporte, evento, horario inicial e mercado;
+2. ignora linhas Lay;
+3. ignora mercados complexos antes do calculo;
+4. coleta todas as odds Back disponiveis por selecao;
+5. deduplica mantendo a melhor odd liquida de cada bookmaker por selecao;
+6. avalia as combinacoes possiveis de duas selecoes;
+7. escolhe a combinacao com menor soma implicita;
+8. se duas combinacoes forem matematicamente equivalentes, prefere a cross-bookmaker.
+
+O motor nao forca cross-bookmaker quando isso pioraria a soma implicita. Se a melhor combinacao real vier da mesma casa, ela e preservada como mesma-casa.
+
+Campos adicionais:
+
+- `optimization_model`: modelo usado na preparacao da oportunidade, atualmente `best_net_odds_per_selection`;
+- `source_candidate_count`: quantidade de linhas Back usadas como fonte no grupo;
+- `selected_best_odds`: bookmaker e odd liquida escolhidos por selecao;
+- `bookmaker_pair`: par de bookmakers nas legs escolhidas;
+- `is_cross_bookmaker`: `true` quando as duas legs vierem de bookmakers diferentes;
+- `distance_to_surebet_percent`: distancia percentual ate a fronteira de surebet.
+
+A distancia ate surebet e calculada assim:
+
+```text
+distance_to_surebet_percent = max(0, (implied_sum - 1) * 100)
+```
+
+Exemplo:
+
+```text
+implied_sum = 1.0172
+distance_to_surebet_percent = 1.72
+```
+
+Quando `implied_sum < 1`, a distancia e `0` e a oportunidade pode ser marcada como surebet pelo `OpportunityCalculator`.
+
 ## Criterios de Exclusao
 
 O motor nao considera nesta fase:
@@ -70,7 +111,7 @@ O motor nao considera nesta fase:
 - odds invalidas;
 - resultados duplicados.
 
-Mercados unsupported podem aparecer no relatorio com `calculation_warnings`, mas nao entram em `total_supported`.
+Mercados unsupported sao ignorados nesta etapa e nao viram candidatos calculados.
 
 ## Campos do Relatorio
 
@@ -83,6 +124,11 @@ Cada oportunidade calculada inclui:
 - `market_type`
 - `result_count`
 - `calculation_model`
+- `optimization_model`
+- `source_candidate_count`
+- `selected_best_odds`
+- `bookmaker_pair`
+- `is_cross_bookmaker`
 - `legs`
 - `implied_sum`
 - `total_implied_probability`
@@ -93,6 +139,7 @@ Cada oportunidade calculada inclui:
 - `guaranteed_profit`
 - `worst_case_profit`
 - `is_surebet`
+- `distance_to_surebet_percent`
 - `calculation_warnings`
 
 O resumo inclui:
@@ -105,6 +152,9 @@ O resumo inclui:
 - `best_event`
 - `best_market`
 - `best_guaranteed_profit`
+- `closest_distance_to_surebet_percent`
+- `cross_bookmaker_candidates`
+- `cross_bookmaker_surebets`
 
 ## Historico JSONL
 
@@ -118,6 +168,9 @@ Cada linha de `outputs/opportunity_watch_history.jsonl` contem:
 - `best_event`
 - `best_market`
 - `best_guaranteed_profit`
+- `closest_distance_to_surebet_percent`
+- `cross_bookmaker_candidates`
+- `cross_bookmaker_surebets`
 
 Esse arquivo e append-only para permitir acompanhar a evolucao das oportunidades calculadas ao longo das execucoes.
 
@@ -144,6 +197,7 @@ O comando:
 - Ainda nao ha tratamento de Draw/empate vindo do relatorio multi-bookmaker.
 - Pinnacle nao fornece liquidez no relatorio atual.
 - O motor assume que `net_odd_*` ja representa a odd liquida quando disponivel.
+- A preferencia cross-bookmaker so atua em empate matematico; ela nao troca uma odd melhor por uma odd pior apenas para diversificar casas.
 
 ## Garantia Read-Only
 

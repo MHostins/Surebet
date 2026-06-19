@@ -32,6 +32,7 @@ from services.diagnostic_runner import DiagnosticRunner
 from services.market_discovery_service import MarketDiscoveryService
 from services.market_mapper import MarketMapper
 from services.matchbook_market_discovery_service import MatchbookMarketDiscoveryService
+from services.opportunity_engine_service import OpportunityEngineService
 from services.opportunity_scanner import OpportunityScanner
 from services.report_generator import ReportGenerator
 
@@ -54,9 +55,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only odds comparison and diagnostics.")
     parser.add_argument(
         "--mode",
-        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
+        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
         default="arbitrage",
-        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
+        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
     )
     parser.add_argument(
         "--api",
@@ -347,6 +348,34 @@ def run_watch() -> None:
         print("\nWatch encerrado pelo usuário.")
 
 
+def run_calculate_opportunities() -> None:
+    logger = logging.getLogger("main")
+    logger.info("Starting read-only opportunity calculation from multi_bookmaker_discrepancy_report.json. No bets will be placed.")
+    report = OpportunityEngineService(
+        output_dir=settings.output_dir,
+        stake_total=settings.stake_total,
+    ).calculate()
+
+    print(f"\nCalculated opportunities saved to {settings.output_dir / 'calculated_opportunities.json'}")
+    print(f"Calculated opportunities CSV saved to {settings.output_dir / 'calculated_opportunities.csv'}")
+    print(f"Opportunity history appended to {settings.output_dir / 'opportunity_watch_history.jsonl'}")
+    print(
+        pformat(
+            {
+                "status": report["status"],
+                "total_candidates": report["total_candidates"],
+                "total_supported": report["total_supported"],
+                "total_surebets": report["total_surebets"],
+                "best_roi_percent": report["best_roi_percent"],
+                "best_event": report["best_event"],
+                "best_market": report["best_market"],
+                "best_guaranteed_profit": report["best_guaranteed_profit"],
+            },
+            sort_dicts=False,
+        )
+    )
+
+
 def run_market_discovery() -> None:
     logger = logging.getLogger("main")
     logger.info("Starting read-only market and sport discovery mode. No bets or arbitrage will be calculated.")
@@ -470,6 +499,8 @@ def main() -> None:
         run_scan_opportunities()
     elif args.mode == "analyze-arbitrage":
         run_analyze_arbitrage()
+    elif args.mode == "calculate-opportunities":
+        run_calculate_opportunities()
     elif args.mode == "watch":
         run_watch()
     elif args.mode == "market-discovery":

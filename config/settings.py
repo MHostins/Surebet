@@ -26,6 +26,13 @@ def _int_env(name: str, default: int) -> int:
     return int(value)
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 @dataclass(frozen=True)
 class ExchangeCommission:
     betfair: float = field(default_factory=lambda: _float_env("BETFAIR_COMMISSION", 0.05))
@@ -114,6 +121,16 @@ class Settings:
     )
     odds_history_db_path: str = field(
         default_factory=lambda: os.getenv("ODDS_HISTORY_DB_PATH", "outputs/odds_history.db")
+    )
+    novibet_public_url: str = field(
+        default_factory=lambda: os.getenv("NOVIBET_PUBLIC_URL", "https://www.novibet.bet.br/apostas-esportivas")
+    )
+    novibet_headless: bool = field(default_factory=lambda: _bool_env("NOVIBET_HEADLESS", True))
+    novibet_navigation_timeout_ms: int = field(
+        default_factory=lambda: _int_env("NOVIBET_NAVIGATION_TIMEOUT_MS", 30000)
+    )
+    novibet_post_load_wait_ms: int = field(
+        default_factory=lambda: _int_env("NOVIBET_POST_LOAD_WAIT_MS", 3000)
     )
     commissions: ExchangeCommission = field(default_factory=ExchangeCommission)
 

@@ -9,6 +9,7 @@ from pprint import pformat
 from clients.betfair_client import BetfairClient
 from clients.matchbook_br_client import MatchbookBRClient
 from clients.matchbook_client import MatchbookClient
+from bookmakers.novibet.novibet_client import NovibetClient
 from config.settings import settings
 from services.alias_suggestion_service import AliasSuggestionService
 from services.arbitrage_analyzer import ArbitrageAnalyzer
@@ -34,6 +35,7 @@ from services.market_mapper import MarketMapper
 from services.matchbook_market_discovery_service import MatchbookMarketDiscoveryService
 from services.opportunity_engine_service import OpportunityEngineService
 from services.opportunity_scanner import OpportunityScanner
+from services.novibet_catalog_service import NovibetCatalogService
 from services.report_generator import ReportGenerator
 
 
@@ -55,9 +57,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only odds comparison and diagnostics.")
     parser.add_argument(
         "--mode",
-        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
+        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "inspect-novibet", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
         default="arbitrage",
-        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
+        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, inspect-novibet, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
     )
     parser.add_argument(
         "--api",
@@ -376,6 +378,35 @@ def run_calculate_opportunities() -> None:
     )
 
 
+def run_inspect_novibet() -> None:
+    logger = logging.getLogger("main")
+    logger.info("Starting read-only Novibet public inspection. No login, clicks, stakes or bets will be performed.")
+    report = NovibetCatalogService(
+        output_dir=settings.output_dir,
+        client=NovibetClient(settings),
+    ).inspect()
+
+    print(f"\nNovibet raw sample saved to {settings.output_dir / 'novibet_raw_sample.json'}")
+    print(f"Novibet normalized sample saved to {settings.output_dir / 'novibet_normalized_sample.json'}")
+    print(f"Novibet inspection report saved to {settings.output_dir / 'novibet_inspection_report.json'}")
+    print(
+        pformat(
+            {
+                "status": report["status"],
+                "target_url": report["target_url"],
+                "final_url": report.get("final_url"),
+                "page_title": report.get("page_title"),
+                "raw_events_count": report["raw_events_count"],
+                "normalized_odds_count": report["normalized_odds_count"],
+                "blocked_action_selectors_detected": report["blocked_action_selectors_detected"],
+                "betting_actions_performed": report["betting_actions_performed"],
+                "errors": report.get("errors", []),
+            },
+            sort_dicts=False,
+        )
+    )
+
+
 def run_market_discovery() -> None:
     logger = logging.getLogger("main")
     logger.info("Starting read-only market and sport discovery mode. No bets or arbitrage will be calculated.")
@@ -501,6 +532,8 @@ def main() -> None:
         run_analyze_arbitrage()
     elif args.mode == "calculate-opportunities":
         run_calculate_opportunities()
+    elif args.mode == "inspect-novibet":
+        run_inspect_novibet()
     elif args.mode == "watch":
         run_watch()
     elif args.mode == "market-discovery":

@@ -35,6 +35,7 @@ from services.market_mapper import MarketMapper
 from services.matchbook_market_discovery_service import MatchbookMarketDiscoveryService
 from services.opportunity_engine_service import OpportunityEngineService
 from services.opportunity_scanner import OpportunityScanner
+from services.opportunity_quality_review_service import OpportunityQualityReviewService
 from services.novibet_catalog_service import NovibetCatalogService
 from services.report_generator import ReportGenerator
 
@@ -57,9 +58,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only odds comparison and diagnostics.")
     parser.add_argument(
         "--mode",
-        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "inspect-novibet", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
+        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "review-opportunity-quality", "inspect-novibet", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
         default="arbitrage",
-        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, inspect-novibet, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
+        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, review-opportunity-quality, inspect-novibet, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
     )
     parser.add_argument(
         "--api",
@@ -378,6 +379,31 @@ def run_calculate_opportunities() -> None:
     )
 
 
+def run_review_opportunity_quality() -> None:
+    logger = logging.getLogger("main")
+    logger.info("Starting read-only opportunity quality review from calculated local outputs.")
+    report = OpportunityQualityReviewService(output_dir=settings.output_dir).review()
+
+    print(f"\nOpportunity quality review saved to {settings.output_dir / 'opportunity_quality_review.json'}")
+    print(f"Opportunity quality review CSV saved to {settings.output_dir / 'opportunity_quality_review.csv'}")
+    print(
+        pformat(
+            {
+                "total_candidates": report["total_candidates"],
+                "total_surebets": report["total_surebets"],
+                "surebet_rate_percent": report["surebet_rate_percent"],
+                "best_roi_percent": report["best_roi_percent"],
+                "best_event": report["best_event"],
+                "closest_distance_to_surebet_percent": report["closest_distance_to_surebet_percent"],
+                "total_cross_bookmaker_candidates": report["total_cross_bookmaker_candidates"],
+                "total_cross_bookmaker_surebets": report["total_cross_bookmaker_surebets"],
+                "history_rows": report["historical_analysis"]["total_history_rows"],
+            },
+            sort_dicts=False,
+        )
+    )
+
+
 def run_inspect_novibet() -> None:
     logger = logging.getLogger("main")
     logger.info("Starting read-only Novibet public inspection. No login, clicks, stakes or bets will be performed.")
@@ -532,6 +558,8 @@ def main() -> None:
         run_analyze_arbitrage()
     elif args.mode == "calculate-opportunities":
         run_calculate_opportunities()
+    elif args.mode == "review-opportunity-quality":
+        run_review_opportunity_quality()
     elif args.mode == "inspect-novibet":
         run_inspect_novibet()
     elif args.mode == "watch":

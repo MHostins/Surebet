@@ -132,6 +132,9 @@ class Settings:
     novibet_post_load_wait_ms: int = field(
         default_factory=lambda: _int_env("NOVIBET_POST_LOAD_WAIT_MS", 3000)
     )
+    alert_near_miss_distance_percent: float = field(
+        default_factory=lambda: _float_env("ALERT_NEAR_MISS_DISTANCE_PERCENT", 2.0)
+    )
     commissions: ExchangeCommission = field(default_factory=ExchangeCommission)
 
 

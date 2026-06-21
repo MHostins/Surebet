@@ -36,6 +36,7 @@ from services.matchbook_market_discovery_service import MatchbookMarketDiscovery
 from services.opportunity_engine_service import OpportunityEngineService
 from services.opportunity_scanner import OpportunityScanner
 from services.opportunity_quality_review_service import OpportunityQualityReviewService
+from services.opportunity_alert_service import OpportunityAlertService
 from services.novibet_catalog_service import NovibetCatalogService
 from services.report_generator import ReportGenerator
 
@@ -58,9 +59,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only odds comparison and diagnostics.")
     parser.add_argument(
         "--mode",
-        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "review-opportunity-quality", "inspect-novibet", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
+        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "review-opportunity-quality", "generate-opportunity-alerts", "inspect-novibet", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
         default="arbitrage",
-        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, review-opportunity-quality, inspect-novibet, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
+        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, review-opportunity-quality, generate-opportunity-alerts, inspect-novibet, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
     )
     parser.add_argument(
         "--api",
@@ -404,6 +405,25 @@ def run_review_opportunity_quality() -> None:
     )
 
 
+def run_generate_opportunity_alerts() -> None:
+    logger = logging.getLogger("main")
+    logger.info("Starting read-only opportunity alert generation from local calculated outputs.")
+    report = OpportunityAlertService(
+        output_dir=settings.output_dir,
+        near_miss_threshold_percent=settings.alert_near_miss_distance_percent,
+    ).generate()
+    summary = report["summary"]
+
+    print("\nAlerts generated:")
+    print(f"Surebets: {summary['total_surebet_alerts']}")
+    print(f"Near misses: {summary['total_near_miss_alerts']}")
+    print(f"Total alerts: {summary['total_alerts']}")
+    print(f"Near miss threshold: {report['near_miss_threshold_percent']}%")
+    print(f"Alerts JSON saved to {settings.output_dir / 'opportunity_alerts.json'}")
+    print(f"Alerts CSV saved to {settings.output_dir / 'opportunity_alerts.csv'}")
+    print(f"Alert history appended to {settings.output_dir / 'opportunity_alert_history.jsonl'}")
+
+
 def run_inspect_novibet() -> None:
     logger = logging.getLogger("main")
     logger.info("Starting read-only Novibet public inspection. No login, clicks, stakes or bets will be performed.")
@@ -560,6 +580,8 @@ def main() -> None:
         run_calculate_opportunities()
     elif args.mode == "review-opportunity-quality":
         run_review_opportunity_quality()
+    elif args.mode == "generate-opportunity-alerts":
+        run_generate_opportunity_alerts()
     elif args.mode == "inspect-novibet":
         run_inspect_novibet()
     elif args.mode == "watch":

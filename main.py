@@ -38,6 +38,8 @@ from services.opportunity_scanner import OpportunityScanner
 from services.opportunity_quality_review_service import OpportunityQualityReviewService
 from services.opportunity_alert_service import OpportunityAlertService
 from services.novibet_catalog_service import NovibetCatalogService
+from services.bookmaker_discovery_service import BookmakerDiscoveryService, DiscoveryConfig
+from services.refresh_pipeline_service import RefreshPipelineService
 from services.report_generator import ReportGenerator
 
 
@@ -59,9 +61,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only odds comparison and diagnostics.")
     parser.add_argument(
         "--mode",
-        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "review-opportunity-quality", "generate-opportunity-alerts", "inspect-novibet", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
+        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "review-opportunity-quality", "generate-opportunity-alerts", "refresh-pipeline", "inspect-novibet", "bookmaker-discovery", "bookmaker-discovery-report", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
         default="arbitrage",
-        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, review-opportunity-quality, generate-opportunity-alerts, inspect-novibet, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
+        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, review-opportunity-quality, generate-opportunity-alerts, refresh-pipeline, inspect-novibet, bookmaker-discovery, bookmaker-discovery-report, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
     )
     parser.add_argument(
         "--api",
@@ -424,6 +426,35 @@ def run_generate_opportunity_alerts() -> None:
     print(f"Alert history appended to {settings.output_dir / 'opportunity_alert_history.jsonl'}")
 
 
+def run_refresh_pipeline() -> None:
+    logger = logging.getLogger("main")
+    logger.info("Starting manual read-only refresh pipeline from local output files only.")
+    report = RefreshPipelineService(
+        output_dir=settings.output_dir,
+        stake_total=settings.stake_total,
+        near_miss_threshold_percent=settings.alert_near_miss_distance_percent,
+    ).run()
+    summary = report["summary"]
+
+    print("\nPipeline completed" if report["status"] == "success" else "\nPipeline completed with warnings")
+    print(f"\nCandidates: {summary['candidates']}")
+    print(f"Supported: {summary['supported']}")
+    print(f"Surebets: {summary['surebets']}")
+    print(f"Near Misses: {summary['near_misses']}")
+    print(f"\nBest ROI: {summary['best_roi_percent']}")
+    print(f"Best Event: {summary['best_event']}")
+    if report.get("errors"):
+        print("\nWarnings:")
+        for error in report["errors"]:
+            print(f"- {error['step']}: {error['error']}")
+    print("\nGenerated files:")
+    print("- calculated_opportunities.json")
+    print("- opportunity_quality_review.json")
+    print("- opportunity_alerts.json")
+    print("- latest_pipeline_summary.json")
+    print("- pipeline_refresh_history.jsonl")
+
+
 def run_inspect_novibet() -> None:
     logger = logging.getLogger("main")
     logger.info("Starting read-only Novibet public inspection. No login, clicks, stakes or bets will be performed.")
@@ -451,6 +482,49 @@ def run_inspect_novibet() -> None:
             sort_dicts=False,
         )
     )
+
+
+def _bookmaker_discovery_config() -> DiscoveryConfig:
+    return DiscoveryConfig(
+        username=settings.surebet_username,
+        password=settings.surebet_password,
+        base_url=settings.surebet_base_url,
+        output_dir=settings.surebet_discovery_output_dir,
+        poll_seconds=settings.surebet_discovery_poll_seconds,
+        max_cycles=settings.surebet_discovery_max_cycles,
+        headless=settings.surebet_discovery_headless,
+        min_profit_change=settings.surebet_discovery_min_profit_change,
+        odds_change_epsilon=settings.surebet_discovery_odds_change_epsilon,
+    )
+
+
+def run_bookmaker_discovery() -> None:
+    logger = logging.getLogger("main")
+    logger.info("Starting read-only SureBet.com bookmaker discovery. No bets, betslip actions or bookmaker links will be opened.")
+    service = BookmakerDiscoveryService(_bookmaker_discovery_config())
+    report = service.run()
+    top_five = report.get("recommended_top_5", [])[:5]
+    print(f"\nBookmaker discovery database: {settings.surebet_discovery_output_dir / 'bookmaker_discovery.db'}")
+    print(f"Bookmaker discovery report: {settings.surebet_discovery_output_dir / 'bookmaker_discovery_report.json'}")
+    print("\nTop 5 provisional bookmakers:")
+    if not top_five:
+        print("No bookmakers ranked yet.")
+    for index, row in enumerate(top_five, start=1):
+        print(f"{index}. {row['bookmaker']} | score={row['score']} | appearances={row['appearances']} | avg_profit={row['avg_profit_percent']}% | max_profit={row['max_profit_percent']}%")
+
+
+def run_bookmaker_discovery_report() -> None:
+    logger = logging.getLogger("main")
+    logger.info("Generating read-only SureBet.com bookmaker discovery reports from local SQLite only.")
+    service = BookmakerDiscoveryService(_bookmaker_discovery_config())
+    report = service.generate_report_only()
+    top_five = report.get("recommended_top_5", [])[:5]
+    print(f"\nBookmaker discovery report regenerated at {settings.surebet_discovery_output_dir / 'bookmaker_discovery_report.json'}")
+    print("Top 5 provisional bookmakers:")
+    if not top_five:
+        print("No bookmakers ranked yet.")
+    for index, row in enumerate(top_five, start=1):
+        print(f"{index}. {row['bookmaker']} | score={row['score']} | appearances={row['appearances']} | avg_profit={row['avg_profit_percent']}% | max_profit={row['max_profit_percent']}%")
 
 
 def run_market_discovery() -> None:
@@ -582,8 +656,14 @@ def main() -> None:
         run_review_opportunity_quality()
     elif args.mode == "generate-opportunity-alerts":
         run_generate_opportunity_alerts()
+    elif args.mode == "refresh-pipeline":
+        run_refresh_pipeline()
     elif args.mode == "inspect-novibet":
         run_inspect_novibet()
+    elif args.mode == "bookmaker-discovery":
+        run_bookmaker_discovery()
+    elif args.mode == "bookmaker-discovery-report":
+        run_bookmaker_discovery_report()
     elif args.mode == "watch":
         run_watch()
     elif args.mode == "market-discovery":

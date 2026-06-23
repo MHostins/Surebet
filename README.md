@@ -595,6 +595,24 @@ O banco SQLite contém a tabela `odds_history` com os seguintes metadados crucia
 * `source_provider`: Provedor dos dados (`matchbook-br`, `the-odds-api`)
 * `bookmaker`: Identificador da casa de aposta (`pinnacle`, `matchbook-br`, etc.)
 
+## Bookmaker Discovery Research
+
+Para observar a pagina autenticada da SureBet.com em modo read-only e descobrir quais casas aparecem com maior frequencia e maior lucro:
+
+```powershell
+py main.py --mode bookmaker-discovery
+```
+
+Para regenerar os rankings sem abrir navegador:
+
+```powershell
+py main.py --mode bookmaker-discovery-report
+```
+
+Configure `SUREBET_USERNAME`, `SUREBET_PASSWORD` e as variaveis `SUREBET_DISCOVERY_*` no `.env`. A primeira versao usa `SUREBET_DISCOVERY_HEADLESS=false` para permitir confirmar visualmente o login. Betano e Bet365 sao excluidas totalmente dos dados e rankings por restricao do usuario.
+
+Relatorios e banco SQLite ficam em `outputs/bookmaker_discovery/`. Veja detalhes em `docs/bookmaker_discovery.md`.
+
 ## Garantia de seguranca
 
 Este projeto nao contem nenhum metodo para enviar apostas reais. Nao ha implementacao de:

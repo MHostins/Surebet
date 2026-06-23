@@ -135,6 +135,29 @@ class Settings:
     alert_near_miss_distance_percent: float = field(
         default_factory=lambda: _float_env("ALERT_NEAR_MISS_DISTANCE_PERCENT", 2.0)
     )
+    surebet_username: str | None = field(default_factory=lambda: os.getenv("SUREBET_USERNAME"))
+    surebet_password: str | None = field(default_factory=lambda: os.getenv("SUREBET_PASSWORD"))
+    surebet_base_url: str = field(
+        default_factory=lambda: os.getenv("SUREBET_BASE_URL", "https://pt.surebet.com")
+    )
+    surebet_discovery_poll_seconds: int = field(
+        default_factory=lambda: _int_env("SUREBET_DISCOVERY_POLL_SECONDS", 5)
+    )
+    surebet_discovery_max_cycles: int = field(
+        default_factory=lambda: _int_env("SUREBET_DISCOVERY_MAX_CYCLES", 0)
+    )
+    surebet_discovery_headless: bool = field(
+        default_factory=lambda: _bool_env("SUREBET_DISCOVERY_HEADLESS", False)
+    )
+    surebet_discovery_output_dir: Path = field(
+        default_factory=lambda: Path(os.getenv("SUREBET_DISCOVERY_OUTPUT_DIR", "outputs/bookmaker_discovery"))
+    )
+    surebet_discovery_min_profit_change: float = field(
+        default_factory=lambda: _float_env("SUREBET_DISCOVERY_MIN_PROFIT_CHANGE", 0.05)
+    )
+    surebet_discovery_odds_change_epsilon: float = field(
+        default_factory=lambda: _float_env("SUREBET_DISCOVERY_ODDS_CHANGE_EPSILON", 0.01)
+    )
     commissions: ExchangeCommission = field(default_factory=ExchangeCommission)
 
 

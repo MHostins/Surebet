@@ -342,6 +342,89 @@ class BookmakerDiscoveryServiceTests(unittest.TestCase):
             snapshot_dir = output_dir / "debug" / "auto_empty_snapshot"
             self.assertTrue((snapshot_dir / "dom_summary.json").exists())
 
+    def test_page_auth_status_detects_limited_public_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = BookmakerDiscoveryService(
+                DiscoveryConfig(
+                    username="user@example.com",
+                    password="secret",
+                    base_url="https://pt.surebet.com",
+                    output_dir=Path(temp_dir),
+                    poll_seconds=5,
+                    max_cycles=0,
+                    headless=True,
+                )
+            )
+            page = _FakeDebugPage(
+                visible_text="Entrar Login Encontrado apostas seguras 1.0%",
+                html=_single_realistic_surebet_record_fixture(profit="1.0"),
+                login_form_count=1,
+            )
+
+            status = service.get_page_auth_status(page, [1.0])
+
+            self.assertTrue(status["login_form_detected"])
+            self.assertTrue(status["contains_entrar_or_login"])
+            self.assertTrue(status["all_profits_are_1_percent"])
+            self.assertEqual(status["max_profit_seen"], 1.0)
+
+    def test_auth_guard_refuses_to_persist_limited_public_data_and_saves_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            service = BookmakerDiscoveryService(
+                DiscoveryConfig(
+                    username="user@example.com",
+                    password="secret",
+                    base_url="https://pt.surebet.com",
+                    output_dir=output_dir,
+                    poll_seconds=5,
+                    max_cycles=0,
+                    headless=True,
+                    require_authenticated=True,
+                    max_limited_cycles=1,
+                )
+            )
+            page = _FakeDebugPage(
+                visible_text="Entrar Login Encontrado apostas seguras 1.0%",
+                html=_single_realistic_surebet_record_fixture(profit="1.0"),
+                login_form_count=1,
+            )
+            opportunities = BookmakerDiscoveryParser().parse_html(
+                _single_realistic_surebet_record_fixture(profit="1.0"),
+                source_url="https://pt.surebet.com/surebets",
+                collected_at="2026-06-24T10:00:00+00:00",
+            )
+
+            with self.assertRaises(RuntimeError):
+                service._enforce_authenticated_collection(page, opportunities)
+
+            self.assertTrue((output_dir / "debug" / "auth_failure_snapshot" / "dom_summary.json").exists())
+            self.assertEqual(service.repository.fetch_observations(), [])
+
+    def test_debug_headless_uses_config_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = BookmakerDiscoveryService(
+                DiscoveryConfig(
+                    username="user@example.com",
+                    password="secret",
+                    base_url="https://pt.surebet.com",
+                    output_dir=Path(temp_dir),
+                    poll_seconds=5,
+                    max_cycles=0,
+                    headless=True,
+                )
+            )
+
+            self.assertTrue(service._debug_headless())
+
+
+class _FakeLocator:
+    def __init__(self, count_value: int) -> None:
+        self.count_value = count_value
+
+    def count(self) -> int:
+        return self.count_value
+
 
 class _FakeDebugPage:
     url = "https://pt.surebet.com/surebets"
@@ -350,6 +433,8 @@ class _FakeDebugPage:
         self,
         visible_text: str | None = None,
         html: str | None = None,
+        login_form_count: int = 0,
+        account_count: int = 0,
     ) -> None:
         self._visible_text = visible_text or """
         Apostas seguras Encontrado
@@ -365,6 +450,8 @@ class _FakeDebugPage:
         3.35
         """
         self._html = html or _single_realistic_surebet_record_fixture()
+        self._login_form_count = login_form_count
+        self._account_count = account_count
 
     def content(self) -> str:
         return self._html
@@ -374,6 +461,14 @@ class _FakeDebugPage:
 
     def screenshot(self, path: str, full_page: bool = True) -> None:
         Path(path).write_bytes(b"fake-png")
+
+    def locator(self, selector: str) -> _FakeLocator:
+        lowered = selector.lower()
+        if "password" in lowered or "sign_in" in lowered or "login" in lowered:
+            return _FakeLocator(self._login_form_count)
+        if "account" in lowered or "logout" in lowered or "sign_out" in lowered:
+            return _FakeLocator(self._account_count)
+        return _FakeLocator(0)
 
     def evaluate(self, script: str, *args):
         if "document.body.innerText" in script:
@@ -459,12 +554,12 @@ def _realistic_surebet_records_fixture(*, include_restricted: bool = True, inclu
     return f"<html><body><table>{records}</table></body></html>"
 
 
-def _single_realistic_surebet_record_fixture() -> str:
+def _single_realistic_surebet_record_fixture(profit: str = "16.24") -> str:
     return (
         "<html><body><table>"
         + _record_html(
             "101",
-            "16.24",
+            profit,
             _leg_html("Betsson (ES)", "Futebol", "23/06 England - Ghana", "Jogos Internacionais", "Acima 0.5 gols", "1.78")
             + _leg_html("Mystake", "Futebol", "23/06 England - Ghana", "Jogos Internacionais", "Abaixo 0.5 gols", "3.35"),
         )

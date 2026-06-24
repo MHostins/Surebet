@@ -6,6 +6,7 @@ import csv
 import hashlib
 import json
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -19,6 +20,7 @@ from urllib.parse import urljoin
 
 LOGGER = logging.getLogger(__name__)
 
+AUTH_FAILURE_MESSAGE = "SureBet authenticated session not confirmed; refusing to collect limited public data."
 RESTRICTED_BOOKMAKERS = {"betano", "bet365"}
 PARSER_SELECTORS = [
     'tbody[data-testid="surebet-record"]',
@@ -81,6 +83,8 @@ class DiscoveryConfig:
     headless: bool
     min_profit_change: float = 0.05
     odds_change_epsilon: float = 0.01
+    require_authenticated: bool = True
+    max_limited_cycles: int = 2
 
     @property
     def db_path(self) -> Path:
@@ -798,6 +802,7 @@ class BookmakerDiscoveryService:
         self.config = config
         self.parser = parser or BookmakerDiscoveryParser()
         self.empty_cycles = 0
+        self.limited_cycles = 0
         self.repository = BookmakerDiscoveryRepository(
             config.db_path,
             min_profit_change=config.min_profit_change,
@@ -837,6 +842,7 @@ class BookmakerDiscoveryService:
                             opportunities = self.parser.parse_visible_text(visible_text, page.url, collected_at)
                             if opportunities:
                                 LOGGER.warning("SureBet discovery used visible-text fallback parser.")
+                        self._enforce_authenticated_collection(page, opportunities)
                         stats = self.repository.save_opportunities(opportunities)
                         max_profit = max((row.profit_percent for row in opportunities), default=None)
                         if stats["inserted"] or stats["changed"]:
@@ -869,6 +875,11 @@ class BookmakerDiscoveryService:
                     except PlaywrightTimeoutError:
                         LOGGER.warning("SureBet DOM timed out; reloading surebets page.")
                         page.goto(self.config.surebets_url, wait_until="domcontentloaded", timeout=30000)
+                    except RuntimeError as exc:
+                        if AUTH_FAILURE_MESSAGE in str(exc):
+                            LOGGER.error(str(exc))
+                            raise
+                        raise
                     except Exception:
                         LOGGER.exception("SureBet discovery cycle failed; attempting lightweight page recovery.")
                         page.goto(self.config.surebets_url, wait_until="domcontentloaded", timeout=30000)
@@ -891,7 +902,7 @@ class BookmakerDiscoveryService:
             raise RuntimeError(f"Playwright is not available: {exc}") from exc
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=False)
+            browser = playwright.chromium.launch(headless=self._debug_headless())
             context = browser.new_context(locale="pt-BR", viewport={"width": 1365, "height": 900})
             page = context.new_page()
             page.on("popup", lambda popup: popup.close())
@@ -920,11 +931,16 @@ class BookmakerDiscoveryService:
         blocks = dom_counts.get("candidate_blocks", [])
         parsed_blocks = self.parser.parse_extracted_blocks(blocks, page.url, collected_at)
         parsed_fallback = self.parser.parse_visible_text(visible_text, page.url, collected_at)
+        profit_values = [row.profit_percent for row in (parsed_blocks or parsed_fallback)]
+        auth_status = self.get_page_auth_status(page, profit_values, visible_text=visible_text)
         summary = {
             "url": page.url,
+            "current_url": page.url,
             "title": page.title(),
+            "page_title": page.title(),
             "timestamp": collected_at,
             "looks_authenticated": self._looks_authenticated(page),
+            **auth_status,
             "contains_encontrado": "encontrado" in visible_text.lower(),
             "contains_apostas_seguras": "apostas seguras" in visible_text.lower(),
             "div_count": dom_counts.get("div_count", 0),
@@ -946,6 +962,71 @@ class BookmakerDiscoveryService:
         (debug_dir / "dom_summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
         return summary
 
+    def get_page_auth_status(
+        self,
+        page: Any,
+        profit_values: list[float],
+        *,
+        visible_text: str | None = None,
+    ) -> dict[str, Any]:
+        text = visible_text if visible_text is not None else self._visible_text(page)
+        lower = text.lower()
+        login_form_detected = self._login_form_detected(page)
+        logout_account_menu_detected = self._logout_account_menu_detected(page, lower)
+        max_profit_seen = max(profit_values, default=None)
+        all_profits_are_1_percent = bool(profit_values) and all(abs(float(value) - 1.0) < 1e-9 for value in profit_values)
+        surebet_count_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:apostas seguras|surebets|encontrado)", lower)
+        return {
+            "current_url": getattr(page, "url", None),
+            "page_title": self._safe_title(page),
+            "login_form_detected": login_form_detected,
+            "logout_account_menu_detected": logout_account_menu_detected,
+            "contains_entrar_or_login": "entrar" in lower or "login" in lower or "sign in" in lower,
+            "contains_encontrado": "encontrado" in lower,
+            "contains_apostas_seguras": "apostas seguras" in lower,
+            "surebet_count_text": surebet_count_match.group(0) if surebet_count_match else None,
+            "max_profit_seen": max_profit_seen,
+            "all_profits_are_1_percent": all_profits_are_1_percent,
+        }
+
+    def _enforce_authenticated_collection(self, page: Any, opportunities: list[DiscoveryOpportunity]) -> None:
+        if not self.config.require_authenticated:
+            return
+        profit_values = [row.profit_percent for row in opportunities]
+        auth_status = self.get_page_auth_status(page, profit_values)
+        limited_now = (
+            bool(auth_status["login_form_detected"])
+            or bool(auth_status["all_profits_are_1_percent"])
+            or (
+                auth_status["max_profit_seen"] is not None
+                and float(auth_status["max_profit_seen"]) <= 1.0
+            )
+        )
+        if limited_now:
+            self.limited_cycles += 1
+            LOGGER.warning(
+                "SureBet authenticated session is not confirmed: login_form=%s all_profits_1=%s max_profit=%s limited_cycles=%s/%s url=%s title=%s",
+                auth_status["login_form_detected"],
+                auth_status["all_profits_are_1_percent"],
+                auth_status["max_profit_seen"],
+                self.limited_cycles,
+                self.config.max_limited_cycles,
+                auth_status["current_url"],
+                auth_status["page_title"],
+            )
+        else:
+            self.limited_cycles = 0
+
+        if bool(auth_status["login_form_detected"]) or bool(auth_status["all_profits_are_1_percent"]) or self.limited_cycles >= self.config.max_limited_cycles:
+            self.save_debug_snapshot(page, self.config.output_dir / "debug" / "auth_failure_snapshot")
+            raise RuntimeError(AUTH_FAILURE_MESSAGE)
+
+    def _debug_headless(self) -> bool:
+        override = os.getenv("SUREBET_DISCOVERY_DEBUG_HEADLESS")
+        if override is None or override == "":
+            return self.config.headless
+        return override.strip().lower() in {"1", "true", "yes", "y", "on"}
+
     def _record_empty_cycle_and_maybe_snapshot(self, page: Any, cycle: int) -> bool:
         self.empty_cycles += 1
         if self.empty_cycles == 3:
@@ -960,11 +1041,11 @@ class BookmakerDiscoveryService:
             return
 
         page.goto(urljoin(self.config.base_url.rstrip("/") + "/", "users/sign_in"), wait_until="domcontentloaded", timeout=30000)
-        username_selector = "input[type='email'], input[name*='email' i], input[name*='login' i], input[name*='user' i]"
+        username_selector = "input[type='email'], input[name='email' i], input[name='user' i], input[name='username' i], input[name*='email' i], input[name*='login' i], input[name*='user' i]"
         password_selector = "input[type='password']"
         page.locator(username_selector).first.fill(self.config.username)
         page.locator(password_selector).first.fill(self.config.password)
-        page.locator("button[type='submit'], input[type='submit']").first.click()
+        page.locator("button[type='submit'], input[type='submit'], button:has-text('Entrar'), button:has-text('Login'), button:has-text('Sign in')").first.click()
         page.wait_for_load_state("domcontentloaded", timeout=30000)
         page.goto(self.config.surebets_url, wait_until="domcontentloaded", timeout=30000)
         if not self._looks_authenticated(page):
@@ -994,6 +1075,30 @@ class BookmakerDiscoveryService:
         except Exception:
             return False
         return "sign in" not in text and "entrar" not in text and ("surebet" in text or "apostas seguras" in text)
+
+    def _login_form_detected(self, page: Any) -> bool:
+        try:
+            return bool(
+                page.locator(
+                    "input[type='password'], input[name='password' i], form[action*='sign_in'], form[action*='login']"
+                ).count()
+            )
+        except Exception:
+            return False
+
+    def _logout_account_menu_detected(self, page: Any, visible_text_lower: str) -> bool:
+        if any(token in visible_text_lower for token in ("sair", "logout", "minha conta", "perfil", "account")):
+            return True
+        try:
+            return bool(page.locator("a[href*='sign_out'], a[href*='logout'], [data-testid*='account' i], [class*='account' i]").count())
+        except Exception:
+            return False
+
+    def _safe_title(self, page: Any) -> str | None:
+        try:
+            return page.title()
+        except Exception:
+            return None
 
     def _wait_for_visible_opportunities(self, page: Any) -> None:
         deadline = time.time() + 120

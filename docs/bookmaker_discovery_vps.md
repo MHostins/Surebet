@@ -38,6 +38,8 @@ SUREBET_DISCOVERY_HEADLESS=true
 SUREBET_DISCOVERY_OUTPUT_DIR=outputs/bookmaker_discovery
 SUREBET_DISCOVERY_MIN_PROFIT_CHANGE=0.05
 SUREBET_DISCOVERY_ODDS_CHANGE_EPSILON=0.01
+SUREBET_DISCOVERY_REQUIRE_AUTHENTICATED=true
+SUREBET_DISCOVERY_MAX_LIMITED_CYCLES=2
 ```
 
 Não salve cookies, tokens ou credenciais fora do `.env`.
@@ -115,6 +117,22 @@ sudo systemctl stop surebet-bookmaker-discovery
 - Não preenche stakes.
 - Não usa endpoints de place bet/place order.
 - Reinicia automaticamente apenas em falha do processo.
+- Recusa persistir dados se a sessão parecer pública/limitada, por exemplo login visível ou lucros travados em `1.0%`.
+- Em falha de autenticação, salva snapshot em `outputs/bookmaker_discovery/debug/auth_failure_snapshot/`.
+
+## Debug Headless
+
+Na VPS, o debug também roda em headless por padrão quando `SUREBET_DISCOVERY_HEADLESS=true`:
+
+```bash
+python main.py --mode bookmaker-discovery-debug
+```
+
+Para sobrescrever apenas o debug:
+
+```bash
+SUREBET_DISCOVERY_DEBUG_HEADLESS=true python main.py --mode bookmaker-discovery-debug
+```
 
 ## Windows Local
 

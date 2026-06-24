@@ -496,6 +496,8 @@ def _bookmaker_discovery_config() -> DiscoveryConfig:
         headless=settings.surebet_discovery_headless,
         min_profit_change=settings.surebet_discovery_min_profit_change,
         odds_change_epsilon=settings.surebet_discovery_odds_change_epsilon,
+        require_authenticated=settings.surebet_discovery_require_authenticated,
+        max_limited_cycles=settings.surebet_discovery_max_limited_cycles,
     )
 
 

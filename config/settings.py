@@ -158,6 +158,12 @@ class Settings:
     surebet_discovery_odds_change_epsilon: float = field(
         default_factory=lambda: _float_env("SUREBET_DISCOVERY_ODDS_CHANGE_EPSILON", 0.01)
     )
+    surebet_discovery_require_authenticated: bool = field(
+        default_factory=lambda: _bool_env("SUREBET_DISCOVERY_REQUIRE_AUTHENTICATED", True)
+    )
+    surebet_discovery_max_limited_cycles: int = field(
+        default_factory=lambda: _int_env("SUREBET_DISCOVERY_MAX_LIMITED_CYCLES", 2)
+    )
     commissions: ExchangeCommission = field(default_factory=ExchangeCommission)
 
 

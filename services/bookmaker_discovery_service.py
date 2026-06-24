@@ -932,7 +932,7 @@ class BookmakerDiscoveryService:
         parsed_blocks = self.parser.parse_extracted_blocks(blocks, page.url, collected_at)
         parsed_fallback = self.parser.parse_visible_text(visible_text, page.url, collected_at)
         profit_values = [row.profit_percent for row in (parsed_blocks or parsed_fallback)]
-        auth_status = self.get_page_auth_status(page, profit_values, visible_text=visible_text)
+        auth_status = self.get_page_auth_status(page, profit_values, visible_text=visible_text, html=html)
         summary = {
             "url": page.url,
             "current_url": page.url,
@@ -968,20 +968,27 @@ class BookmakerDiscoveryService:
         profit_values: list[float],
         *,
         visible_text: str | None = None,
+        html: str | None = None,
     ) -> dict[str, Any]:
         text = visible_text if visible_text is not None else self._visible_text(page)
         lower = text.lower()
+        page_html = html if html is not None else self._safe_content(page)
+        html_lower = page_html.lower()
         login_form_detected = self._login_form_detected(page)
         logout_account_menu_detected = self._logout_account_menu_detected(page, lower)
         max_profit_seen = max(profit_values, default=None)
         all_profits_are_1_percent = bool(profit_values) and all(abs(float(value) - 1.0) < 1e-9 for value in profit_values)
         surebet_count_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:apostas seguras|surebets|encontrado)", lower)
+        contains_sign_in_href = 'href="/users/sign_in"' in html_lower or "href='/users/sign_in'" in html_lower or "/users/sign_in" in html_lower
+        contains_fazer_login = "fazer login" in lower
         return {
             "current_url": getattr(page, "url", None),
             "page_title": self._safe_title(page),
             "login_form_detected": login_form_detected,
             "logout_account_menu_detected": logout_account_menu_detected,
             "contains_entrar_or_login": "entrar" in lower or "login" in lower or "sign in" in lower,
+            "contains_fazer_login": contains_fazer_login,
+            "contains_sign_in_href": contains_sign_in_href,
             "contains_encontrado": "encontrado" in lower,
             "contains_apostas_seguras": "apostas seguras" in lower,
             "surebet_count_text": surebet_count_match.group(0) if surebet_count_match else None,
@@ -997,6 +1004,9 @@ class BookmakerDiscoveryService:
         limited_now = (
             bool(auth_status["login_form_detected"])
             or bool(auth_status["all_profits_are_1_percent"])
+            or bool(auth_status["contains_sign_in_href"])
+            or bool(auth_status["contains_fazer_login"])
+            or not bool(auth_status["logout_account_menu_detected"])
             or (
                 auth_status["max_profit_seen"] is not None
                 and float(auth_status["max_profit_seen"]) <= 1.0
@@ -1017,7 +1027,14 @@ class BookmakerDiscoveryService:
         else:
             self.limited_cycles = 0
 
-        if bool(auth_status["login_form_detected"]) or bool(auth_status["all_profits_are_1_percent"]) or self.limited_cycles >= self.config.max_limited_cycles:
+        immediate_auth_failure = (
+            bool(auth_status["login_form_detected"])
+            or bool(auth_status["contains_sign_in_href"])
+            or bool(auth_status["contains_fazer_login"])
+            or bool(auth_status["all_profits_are_1_percent"])
+            or not bool(auth_status["logout_account_menu_detected"])
+        )
+        if immediate_auth_failure or self.limited_cycles >= self.config.max_limited_cycles:
             self.save_debug_snapshot(page, self.config.output_dir / "debug" / "auth_failure_snapshot")
             raise RuntimeError(AUTH_FAILURE_MESSAGE)
 
@@ -1040,27 +1057,70 @@ class BookmakerDiscoveryService:
         if self._looks_authenticated(page):
             return
 
+        login_debug: dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "login_page_reached": False,
+            "selector_used": None,
+            "username_field_found": False,
+            "password_field_found": False,
+            "submit_clicked": False,
+            "final_url_after_login": None,
+        }
         page.goto(urljoin(self.config.base_url.rstrip("/") + "/", "users/sign_in"), wait_until="domcontentloaded", timeout=30000)
-        username_selector = "input[type='email'], input[name='email' i], input[name='user' i], input[name='username' i], input[name*='email' i], input[name*='login' i], input[name*='user' i]"
-        password_selector = "input[type='password']"
-        page.locator(username_selector).first.fill(self.config.username)
-        page.locator(password_selector).first.fill(self.config.password)
-        page.locator("button[type='submit'], input[type='submit'], button:has-text('Entrar'), button:has-text('Login'), button:has-text('Sign in')").first.click()
-        page.wait_for_load_state("domcontentloaded", timeout=30000)
-        page.goto(self.config.surebets_url, wait_until="domcontentloaded", timeout=30000)
-        if not self._looks_authenticated(page):
-            raise RuntimeError("SureBet login did not reach an authenticated surebets page.")
+        login_debug["login_page_reached"] = "/users/sign_in" in str(getattr(page, "url", ""))
+        self._save_login_attempt_debug(page, login_debug, before=True)
+        try:
+            username_selector = self._first_available_selector(
+                page,
+                [
+                    "input[type='email']",
+                    "input[name='email' i]",
+                    "input[name='user' i]",
+                    "input[name='username' i]",
+                    "input[name*='email' i]",
+                    "input[name*='login' i]",
+                    "input[name*='user' i]",
+                ],
+            )
+            password_selector = self._first_available_selector(page, ["input[type='password']", "input[name='password' i]"])
+            submit_selector = self._first_available_selector(
+                page,
+                [
+                    "button[type='submit']",
+                    "input[type='submit']",
+                    "button:has-text('Entrar')",
+                    "button:has-text('Login')",
+                    "button:has-text('Sign in')",
+                ],
+            )
+            login_debug["selector_used"] = username_selector
+            login_debug["username_field_found"] = bool(username_selector)
+            login_debug["password_field_found"] = bool(password_selector)
+            if not username_selector or not password_selector or not submit_selector:
+                raise RuntimeError("SureBet login form selectors were not found.")
+
+            page.locator(username_selector).first.fill(self.config.username)
+            page.locator(password_selector).first.fill(self.config.password)
+            page.locator(submit_selector).first.click()
+            login_debug["submit_clicked"] = True
+            page.wait_for_load_state("domcontentloaded", timeout=30000)
+            page.goto(self.config.surebets_url, wait_until="domcontentloaded", timeout=30000)
+            login_debug["final_url_after_login"] = getattr(page, "url", None)
+            self._save_login_attempt_debug(page, login_debug, before=False)
+            if not self._looks_authenticated(page):
+                raise RuntimeError("SureBet login did not reach an authenticated surebets page.")
+        except Exception:
+            login_debug["final_url_after_login"] = getattr(page, "url", None)
+            self._save_login_attempt_debug(page, login_debug, before=False)
+            raise
 
     def _login_or_wait_manual(self, page: Any) -> None:
         page.goto(self.config.surebets_url, wait_until="domcontentloaded", timeout=30000)
         if self._looks_authenticated(page):
             return
         if self.config.username and self.config.password:
-            try:
-                self._login(page)
-                return
-            except Exception as exc:
-                LOGGER.warning("Automatic SureBet login failed in debug mode: %s", exc)
+            self._login(page)
+            return
         print("Faça login manualmente na janela aberta. O diagnóstico continuará quando a página autenticada carregar.")
         deadline = time.time() + 300
         while time.time() < deadline:
@@ -1070,11 +1130,19 @@ class BookmakerDiscoveryService:
         raise RuntimeError("SureBet debug mode timed out waiting for authenticated page.")
 
     def _looks_authenticated(self, page: Any) -> bool:
-        try:
-            text = page.locator("body").inner_text(timeout=5000).lower()
-        except Exception:
+        text = self._visible_text(page)
+        html = self._safe_content(page)
+        profit_values = self._extract_profit_values_from_html(html)
+        status = self.get_page_auth_status(page, profit_values, visible_text=text, html=html)
+        if (
+            status["contains_sign_in_href"]
+            or status["contains_fazer_login"]
+            or status["login_form_detected"]
+            or status["all_profits_are_1_percent"]
+            or not status["logout_account_menu_detected"]
+        ):
             return False
-        return "sign in" not in text and "entrar" not in text and ("surebet" in text or "apostas seguras" in text)
+        return bool(status["contains_encontrado"] or status["contains_apostas_seguras"])
 
     def _login_form_detected(self, page: Any) -> bool:
         try:
@@ -1099,6 +1167,46 @@ class BookmakerDiscoveryService:
             return page.title()
         except Exception:
             return None
+
+    def _safe_content(self, page: Any) -> str:
+        try:
+            return str(page.content() or "")
+        except Exception:
+            return ""
+
+    def _extract_profit_values_from_html(self, html: str) -> list[float]:
+        values: list[float] = []
+        for match in re.finditer(r'data-profit=["\']([^"\']+)["\']', html, flags=re.IGNORECASE):
+            value = _float_or_none(match.group(1))
+            if value is not None:
+                values.append(value)
+        for match in re.finditer(r'data-roi=["\']([^"\']+)["\']', html, flags=re.IGNORECASE):
+            value = _float_or_none(match.group(1))
+            if value is not None:
+                values.append(value)
+        return values
+
+    def _first_available_selector(self, page: Any, selectors: list[str]) -> str | None:
+        for selector in selectors:
+            try:
+                if page.locator(selector).count() > 0:
+                    return selector
+            except Exception:
+                continue
+        return None
+
+    def _save_login_attempt_debug(self, page: Any, login_debug: dict[str, Any], *, before: bool) -> None:
+        debug_dir = self.config.output_dir / "debug" / "login_attempt"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            if before:
+                page.screenshot(path=str(debug_dir / "before_login.png"), full_page=True)
+            else:
+                page.screenshot(path=str(debug_dir / "after_login.png"), full_page=True)
+                (debug_dir / "after_login.html").write_text(self._safe_content(page), encoding="utf-8")
+        except Exception as exc:
+            LOGGER.warning("Failed to save SureBet login debug screenshot: %s", exc)
+        (debug_dir / "login_debug.json").write_text(json.dumps(login_debug, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def _wait_for_visible_opportunities(self, page: Any) -> None:
         deadline = time.time() + 120

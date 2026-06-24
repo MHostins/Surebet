@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -417,6 +418,66 @@ class BookmakerDiscoveryServiceTests(unittest.TestCase):
 
             self.assertTrue(service._debug_headless())
 
+    def test_looks_authenticated_rejects_public_limited_page(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = BookmakerDiscoveryService(
+                DiscoveryConfig(
+                    username="user@example.com",
+                    password="secret",
+                    base_url="https://pt.surebet.com",
+                    output_dir=Path(temp_dir),
+                    poll_seconds=5,
+                    max_cycles=0,
+                    headless=True,
+                )
+            )
+            page = _FakeDebugPage(
+                visible_text="Fazer login Encontrado apostas seguras 1.0%",
+                html=(
+                    '<html><body><a href="/users/sign_in">Fazer login</a>'
+                    + _single_realistic_surebet_record_fixture(profit="1.0")
+                    + "</body></html>"
+                ),
+                login_form_count=1,
+                account_count=0,
+            )
+
+            self.assertFalse(service._looks_authenticated(page))
+
+    def test_save_login_attempt_debug_writes_expected_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = BookmakerDiscoveryService(
+                DiscoveryConfig(
+                    username="user@example.com",
+                    password="secret",
+                    base_url="https://pt.surebet.com",
+                    output_dir=Path(temp_dir),
+                    poll_seconds=5,
+                    max_cycles=0,
+                    headless=True,
+                )
+            )
+            page = _FakeDebugPage(visible_text="Fazer login", html='<html><body><a href="/users/sign_in">Fazer login</a></body></html>')
+            login_debug = {
+                "login_page_reached": True,
+                "selector_used": "input[type='email']",
+                "username_field_found": True,
+                "password_field_found": True,
+                "submit_clicked": True,
+                "final_url_after_login": "https://pt.surebet.com/surebets",
+            }
+
+            service._save_login_attempt_debug(page, login_debug, before=True)
+            service._save_login_attempt_debug(page, login_debug, before=False)
+
+            debug_dir = Path(temp_dir) / "debug" / "login_attempt"
+            self.assertTrue((debug_dir / "before_login.png").exists())
+            self.assertTrue((debug_dir / "after_login.png").exists())
+            self.assertTrue((debug_dir / "after_login.html").exists())
+            saved = json.loads((debug_dir / "login_debug.json").read_text(encoding="utf-8"))
+            self.assertTrue(saved["login_page_reached"])
+            self.assertTrue(saved["submit_clicked"])
+
 
 class _FakeLocator:
     def __init__(self, count_value: int) -> None:
@@ -424,6 +485,19 @@ class _FakeLocator:
 
     def count(self) -> int:
         return self.count_value
+
+    @property
+    def first(self) -> "_FakeLocator":
+        return self
+
+    def fill(self, value: str) -> None:
+        return None
+
+    def click(self) -> None:
+        return None
+
+    def inner_text(self, timeout: int | None = None) -> str:
+        return ""
 
 
 class _FakeDebugPage:
@@ -464,6 +538,10 @@ class _FakeDebugPage:
 
     def locator(self, selector: str) -> _FakeLocator:
         lowered = selector.lower()
+        if selector == "body":
+            locator = _FakeLocator(1)
+            locator.inner_text = lambda timeout=None: self._visible_text
+            return locator
         if "password" in lowered or "sign_in" in lowered or "login" in lowered:
             return _FakeLocator(self._login_form_count)
         if "account" in lowered or "logout" in lowered or "sign_out" in lowered:

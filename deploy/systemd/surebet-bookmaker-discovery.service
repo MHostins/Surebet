@@ -1,0 +1,19 @@
+[Unit]
+Description=Surebet Bookmaker Discovery read-only runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/surebet
+Environment=SUREBET_PROJECT_DIR=/opt/surebet
+Environment=PYTHON_BIN=python3
+ExecStart=/opt/surebet/scripts/run_bookmaker_discovery_linux.sh
+Restart=on-failure
+RestartSec=30
+User=surebet
+Group=surebet
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

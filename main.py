@@ -39,6 +39,7 @@ from services.opportunity_quality_review_service import OpportunityQualityReview
 from services.opportunity_alert_service import OpportunityAlertService
 from services.novibet_catalog_service import NovibetCatalogService
 from services.bookmaker_discovery_service import BookmakerDiscoveryService, DiscoveryConfig
+from services.bookmaker_intelligence_service import BookmakerIntelligenceService
 from services.refresh_pipeline_service import RefreshPipelineService
 from services.report_generator import ReportGenerator
 
@@ -61,9 +62,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only odds comparison and diagnostics.")
     parser.add_argument(
         "--mode",
-        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "review-opportunity-quality", "generate-opportunity-alerts", "refresh-pipeline", "inspect-novibet", "bookmaker-discovery", "bookmaker-discovery-report", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
+        choices=["arbitrage", "diagnostic", "check-config", "compare", "suggest-aliases", "scan-opportunities", "analyze-arbitrage", "calculate-opportunities", "review-opportunity-quality", "generate-opportunity-alerts", "refresh-pipeline", "inspect-novibet", "bookmaker-discovery", "bookmaker-discovery-debug", "bookmaker-discovery-report", "bookmaker-intelligence", "watch", "market-discovery", "matchbook-market-discovery", "moneyline-discovery", "compare-moneyline", "scan-moneyline-opportunities", "analyze-moneyline-arbitrage", "watch-moneyline", "odds-api-bookmakers", "odds-api-usage", "compare-multi-bookmakers", "watch-multi-bookmakers"],
         default="arbitrage",
-        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, review-opportunity-quality, generate-opportunity-alerts, refresh-pipeline, inspect-novibet, bookmaker-discovery, bookmaker-discovery-report, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
+        help="Execution mode. Use diagnostic, check-config, compare, suggest-aliases, scan-opportunities, analyze-arbitrage, calculate-opportunities, review-opportunity-quality, generate-opportunity-alerts, refresh-pipeline, inspect-novibet, bookmaker-discovery, bookmaker-discovery-debug, bookmaker-discovery-report, bookmaker-intelligence, watch, market-discovery, matchbook-market-discovery, moneyline-discovery, compare-moneyline, scan-moneyline-opportunities, analyze-moneyline-arbitrage, watch-moneyline, odds-api-bookmakers, odds-api-usage, compare-multi-bookmakers, or watch-multi-bookmakers.",
     )
     parser.add_argument(
         "--api",
@@ -527,6 +528,56 @@ def run_bookmaker_discovery_report() -> None:
         print(f"{index}. {row['bookmaker']} | score={row['score']} | appearances={row['appearances']} | avg_profit={row['avg_profit_percent']}% | max_profit={row['max_profit_percent']}%")
 
 
+def run_bookmaker_discovery_debug() -> None:
+    logger = logging.getLogger("main")
+    logger.info("Starting read-only SureBet.com bookmaker discovery DOM debug mode.")
+    service = BookmakerDiscoveryService(_bookmaker_discovery_config())
+    summary = service.run_debug()
+    debug_dir = settings.surebet_discovery_output_dir / "debug"
+    print("\nBookmaker discovery debug snapshot saved:")
+    print(f"- {debug_dir / 'page.html'}")
+    print(f"- {debug_dir / 'page.png'}")
+    print(f"- {debug_dir / 'dom_summary.json'}")
+    print(f"- {debug_dir / 'visible_text.txt'}")
+    print(
+        pformat(
+            {
+                "url": summary.get("url"),
+                "title": summary.get("title"),
+                "looks_authenticated": summary.get("looks_authenticated"),
+                "elements_containing_percent_count": summary.get("elements_containing_percent_count"),
+                "elements_containing_known_bookmakers_count": summary.get("elements_containing_known_bookmakers_count"),
+                "parser_dom_extracted_count": summary.get("parser_dom_extracted_count"),
+                "parser_visible_text_extracted_count": summary.get("parser_visible_text_extracted_count"),
+            },
+            sort_dicts=False,
+        )
+    )
+
+
+def run_bookmaker_intelligence() -> None:
+    logger = logging.getLogger("main")
+    logger.info("Starting read-only bookmaker intelligence from local Bookmaker Discovery SQLite.")
+    discovery_db = settings.surebet_discovery_output_dir / "bookmaker_discovery.db"
+    output_dir = settings.output_dir / "bookmaker_intelligence"
+    report = BookmakerIntelligenceService(discovery_db, output_dir).generate()
+    summary = report["summary"]
+    print("\nBookmaker intelligence generated:")
+    print(f"Source DB: {discovery_db}")
+    print(f"Output dir: {output_dir}")
+    print(f"Observations: {summary['total_observations']}")
+    print(f"Bookmakers: {summary['total_bookmakers']}")
+    print(f"Pairs: {summary['total_pairs']}")
+    print("Generated files:")
+    print("- bookmaker_intelligence_report.json")
+    print("- bookmaker_by_sport.csv")
+    print("- bookmaker_by_market.csv")
+    print("- bookmaker_by_hour.csv")
+    print("- bookmaker_pair_strength.csv")
+    print("- bookmaker_consistency.csv")
+    print("- bookmaker_context_notes.json")
+
+
 def run_market_discovery() -> None:
     logger = logging.getLogger("main")
     logger.info("Starting read-only market and sport discovery mode. No bets or arbitrage will be calculated.")
@@ -662,8 +713,12 @@ def main() -> None:
         run_inspect_novibet()
     elif args.mode == "bookmaker-discovery":
         run_bookmaker_discovery()
+    elif args.mode == "bookmaker-discovery-debug":
+        run_bookmaker_discovery_debug()
     elif args.mode == "bookmaker-discovery-report":
         run_bookmaker_discovery_report()
+    elif args.mode == "bookmaker-intelligence":
+        run_bookmaker_intelligence()
     elif args.mode == "watch":
         run_watch()
     elif args.mode == "market-discovery":

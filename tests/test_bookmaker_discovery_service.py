@@ -76,6 +76,104 @@ class BookmakerDiscoveryParserTests(unittest.TestCase):
 
         self.assertEqual(opportunities, [])
 
+    def test_fallback_parses_visible_text_opportunity(self) -> None:
+        visible_text = """
+        16,2%
+        2 h
+        Betsson
+        Futebol
+        Mystake
+        Futebol
+        23/06 England - Ghana
+        Jogos Internacionais
+        Acima 0.5 gols
+        1.78
+        Abaixo 0.5 gols
+        3.35
+        """
+
+        opportunities = BookmakerDiscoveryParser().parse_visible_text(
+            visible_text,
+            source_url="https://pt.surebet.com/surebets",
+            collected_at="2026-06-23T10:00:00+00:00",
+        )
+
+        self.assertEqual(len(opportunities), 1)
+        opportunity = opportunities[0]
+        self.assertEqual(opportunity.profit_percent, 16.2)
+        self.assertEqual(opportunity.bookmaker_1, "Betsson")
+        self.assertEqual(opportunity.bookmaker_2, "Mystake")
+        self.assertEqual(opportunity.sport, "Futebol")
+        self.assertEqual(opportunity.event_name, "23/06 England - Ghana")
+        self.assertEqual(opportunity.market, "Acima 0.5 gols / Abaixo 0.5 gols")
+        self.assertEqual(opportunity.odds, [1.78, 3.35])
+
+    def test_fallback_excludes_restricted_bookmakers(self) -> None:
+        visible_text = """
+        8,4%
+        Betano
+        Futebol
+        Novibet
+        Futebol
+        23/06 Team A - Team B
+        Resultado final
+        Casa
+        2.10
+        Fora
+        2.05
+        """
+
+        opportunities = BookmakerDiscoveryParser().parse_visible_text(
+            visible_text,
+            source_url="https://pt.surebet.com/surebets",
+            collected_at="2026-06-23T10:00:00+00:00",
+        )
+
+        self.assertEqual(opportunities, [])
+
+    def test_dom_parser_extracts_multiple_real_surebet_records(self) -> None:
+        html = _realistic_surebet_records_fixture()
+
+        opportunities = BookmakerDiscoveryParser().parse_html(
+            html,
+            source_url="https://pt.surebet.com/surebets",
+            collected_at="2026-06-23T10:00:00+00:00",
+        )
+
+        self.assertEqual(len(opportunities), 2)
+        first = opportunities[0]
+        self.assertEqual(first.opportunity_id, "101")
+        self.assertEqual(first.profit_percent, 16.24)
+        self.assertEqual(first.bookmaker_1, "Betsson (ES)")
+        self.assertEqual(first.bookmaker_2, "Mystake")
+        self.assertEqual(first.sport, "Futebol")
+        self.assertEqual(first.event_name, "23/06 England - Ghana")
+        self.assertEqual(first.market, "Acima 0.5 gols / Abaixo 0.5 gols")
+        self.assertEqual(first.odds, [1.78, 3.35])
+
+        second = opportunities[1]
+        self.assertEqual(second.opportunity_id, "102")
+        self.assertEqual(second.profit_percent, 11.6)
+        self.assertEqual(second.bookmaker_1, "AlfaBet (BR)")
+        self.assertEqual(second.bookmaker_2, "Stake")
+        self.assertEqual(second.odds, [1.58, 3.8])
+
+    def test_dom_parser_rejects_masked_and_restricted_records(self) -> None:
+        parser = BookmakerDiscoveryParser()
+
+        opportunities = parser.parse_html(
+            _realistic_surebet_records_fixture(),
+            source_url="https://pt.surebet.com/surebets",
+            collected_at="2026-06-23T10:00:00+00:00",
+        )
+
+        self.assertEqual(len(opportunities), 2)
+        self.assertEqual(parser.last_dom_record_count, 4)
+        self.assertEqual(parser.last_rejection_counts["masked_xxx"], 1)
+        self.assertEqual(parser.last_rejection_counts["restricted_bookmaker"], 1)
+        self.assertEqual(parser.last_dom_valid_count, 2)
+        self.assertEqual(parser.last_dom_rejected_count, 2)
+
 
 class BookmakerDiscoveryRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -193,6 +291,185 @@ class BookmakerDiscoveryServiceTests(unittest.TestCase):
 
             self.assertEqual(report["summary"]["total_observations"], 1)
             self.assertTrue((output_dir / "bookmaker_discovery_report.json").exists())
+
+    def test_writes_debug_snapshot_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            config = DiscoveryConfig(
+                username="user@example.com",
+                password="secret",
+                base_url="https://pt.surebet.com",
+                output_dir=output_dir,
+                poll_seconds=5,
+                max_cycles=0,
+                headless=False,
+            )
+            service = BookmakerDiscoveryService(config)
+            fake_page = _FakeDebugPage()
+
+            summary = service.save_debug_snapshot(fake_page, output_dir / "debug")
+
+            self.assertTrue((output_dir / "debug" / "page.html").exists())
+            self.assertTrue((output_dir / "debug" / "page.png").exists())
+            self.assertTrue((output_dir / "debug" / "dom_summary.json").exists())
+            self.assertTrue((output_dir / "debug" / "visible_text.txt").exists())
+            self.assertEqual(summary["parser_current_extracted_count"], 1)
+            self.assertEqual(summary["surebet_record_count"], 1)
+            self.assertEqual(summary["surebet_leg_count"], 2)
+            self.assertEqual(summary["dom_parser_valid_count"], 1)
+            self.assertEqual(summary["dom_parser_rejected_count"], 0)
+            self.assertGreaterEqual(summary["elements_containing_percent_count"], 1)
+
+    def test_empty_cycles_trigger_auto_debug_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            config = DiscoveryConfig(
+                username="user@example.com",
+                password="secret",
+                base_url="https://pt.surebet.com",
+                output_dir=output_dir,
+                poll_seconds=5,
+                max_cycles=0,
+                headless=False,
+            )
+            service = BookmakerDiscoveryService(config)
+            fake_page = _FakeDebugPage(visible_text="Pagina sem oportunidades", html="<html><body>vazio</body></html>")
+
+            self.assertFalse(service._record_empty_cycle_and_maybe_snapshot(fake_page, 1))
+            self.assertFalse(service._record_empty_cycle_and_maybe_snapshot(fake_page, 2))
+            self.assertTrue(service._record_empty_cycle_and_maybe_snapshot(fake_page, 3))
+
+            snapshot_dir = output_dir / "debug" / "auto_empty_snapshot"
+            self.assertTrue((snapshot_dir / "dom_summary.json").exists())
+
+
+class _FakeDebugPage:
+    url = "https://pt.surebet.com/surebets"
+
+    def __init__(
+        self,
+        visible_text: str | None = None,
+        html: str | None = None,
+    ) -> None:
+        self._visible_text = visible_text or """
+        Apostas seguras Encontrado
+        16,2%
+        Betsson
+        Futebol
+        Mystake
+        Futebol
+        23/06 England - Ghana
+        Acima 0.5 gols
+        1.78
+        Abaixo 0.5 gols
+        3.35
+        """
+        self._html = html or _single_realistic_surebet_record_fixture()
+
+    def content(self) -> str:
+        return self._html
+
+    def title(self) -> str:
+        return "Apostas seguras encontradas"
+
+    def screenshot(self, path: str, full_page: bool = True) -> None:
+        Path(path).write_bytes(b"fake-png")
+
+    def evaluate(self, script: str, *args):
+        if "document.body.innerText" in script:
+            return self._visible_text
+        return {
+            "div_count": 1,
+            "tr_count": 1,
+            "a_count": 2,
+            "surebet_record_count": 1,
+            "surebet_leg_count": 2,
+            "elements_containing_percent_count": 1,
+            "elements_containing_known_bookmakers_count": 2,
+            "candidate_blocks": [
+                {
+                    "text": self._visible_text,
+                    "html": self._html,
+                    "href": None,
+                    "selector": "body",
+                }
+            ],
+        }
+
+
+def _leg_html(bookmaker: str, sport: str, event: str, tournament: str, market: str, odd: str) -> str:
+    return f"""
+    <tr data-testid="surebet-leg">
+      <td class="booker">
+        {bookmaker}
+        <span data-testid="surebet-leg-sport">{sport}</span>
+      </td>
+      <td class="time">23/06 14:00</td>
+      <td class="event">
+        {event}
+        <span data-testid="surebet-leg-tournament">{tournament}</span>
+      </td>
+      <td class="coeff">{market}</td>
+      <td class="value">{odd}</td>
+    </tr>
+    """
+
+
+def _record_html(record_id: str, profit: str, legs: str) -> str:
+    return f"""
+    <tbody class="surebet_record" data-testid="surebet-record" data-id="{record_id}"
+           data-signature="sig-{record_id}" data-profit="{profit}" data-created-at="2026-06-23T10:00:00Z"
+           data-start-at="2026-06-23T14:00:00Z" data-roi="{profit}">
+      <tr><td><span data-testid="surebet-profit" class="profit">{profit}%</span></td></tr>
+      {legs}
+    </tbody>
+    """
+
+
+def _realistic_surebet_records_fixture(*, include_restricted: bool = True, include_masked: bool = True) -> str:
+    valid_a = _record_html(
+        "101",
+        "16.24",
+        _leg_html("Betsson (ES)", "Futebol", "23/06 England - Ghana", "Jogos Internacionais", "Acima 0.5 gols", "1.78")
+        + _leg_html("Mystake", "Futebol", "23/06 England - Ghana", "Jogos Internacionais", "Abaixo 0.5 gols", "3.35"),
+    )
+    valid_b = _record_html(
+        "102",
+        "11.6",
+        _leg_html("AlfaBet (BR)", "Futebol", "23/06 Spain - France", "Euro", "Casa vence", "1.58")
+        + _leg_html("Stake", "Futebol", "23/06 Spain - France", "Euro", "Fora vence", "3.80"),
+    )
+    masked = _record_html(
+        "103",
+        "9.0",
+        _leg_html("XXX", "Futebol", "23/06 A - B", "Liga", "XXX", "XXX")
+        + _leg_html("Novibet", "Futebol", "23/06 A - B", "Liga", "Fora", "2.10"),
+    )
+    restricted = _record_html(
+        "104",
+        "8.0",
+        _leg_html("Bet365", "Futebol", "23/06 C - D", "Liga", "Casa", "2.20")
+        + _leg_html("Superbet", "Futebol", "23/06 C - D", "Liga", "Fora", "1.90"),
+    )
+    records = valid_a + valid_b
+    if include_masked:
+        records += masked
+    if include_restricted:
+        records += restricted
+    return f"<html><body><table>{records}</table></body></html>"
+
+
+def _single_realistic_surebet_record_fixture() -> str:
+    return (
+        "<html><body><table>"
+        + _record_html(
+            "101",
+            "16.24",
+            _leg_html("Betsson (ES)", "Futebol", "23/06 England - Ghana", "Jogos Internacionais", "Acima 0.5 gols", "1.78")
+            + _leg_html("Mystake", "Futebol", "23/06 England - Ghana", "Jogos Internacionais", "Abaixo 0.5 gols", "3.35"),
+        )
+        + "</table></body></html>"
+    )
 
 
 if __name__ == "__main__":

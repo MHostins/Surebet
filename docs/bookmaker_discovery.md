@@ -38,6 +38,12 @@ Regenerar relatorios sem abrir navegador:
 py main.py --mode bookmaker-discovery-report
 ```
 
+Gerar snapshot de diagnostico do DOM da SureBet.com:
+
+```powershell
+py main.py --mode bookmaker-discovery-debug
+```
+
 Tambem existe o launcher:
 
 ```powershell
@@ -51,6 +57,27 @@ O coletor usa Playwright para abrir `https://pt.surebet.com/surebets`, fazer log
 O script evita refresh completo da pagina. Ele so recarrega em casos de erro, timeout, sessao indisponivel ou DOM inacessivel.
 
 Ao interromper com `CTRL+C`, o navegador e fechado, o banco permanece integro, um relatorio final e gerado e o top 5 provisorio e exibido no terminal.
+
+Se o parser DOM nao encontrar oportunidades, o coletor tenta um fallback usando `document.body.innerText`. Quando o fallback encontrar oportunidades, um warning e registrado no log.
+
+Se 3 ciclos consecutivos retornarem 0 oportunidades extraidas, o sistema salva automaticamente um snapshot em:
+
+```text
+outputs/bookmaker_discovery/debug/auto_empty_snapshot/
+```
+
+## Diagnostico DOM
+
+O modo `bookmaker-discovery-debug` abre a pagina autenticada, permite login manual se necessario e salva:
+
+```text
+outputs/bookmaker_discovery/debug/page.html
+outputs/bookmaker_discovery/debug/page.png
+outputs/bookmaker_discovery/debug/dom_summary.json
+outputs/bookmaker_discovery/debug/visible_text.txt
+```
+
+`dom_summary.json` inclui URL, titulo, estado aparente de autenticacao, contagem de elementos, seletores testados, blocos candidatos e quantidade de oportunidades extraidas pelo parser DOM e pelo fallback de texto visivel.
 
 ## Dados Capturados
 
